@@ -1,11 +1,12 @@
 package main
 
-
 import (
 	"fmt"
-	"github.com/gorilla/websocket"
+
 	"math/rand"
 	"time"
+	"github.com/gorilla/websocket"
+	"go.uber.org/atomic"
 )
 
 var (
@@ -13,24 +14,40 @@ var (
 )
 
 type sBench struct {
+	success atomic.Int32
+	fail 	atomic.Int32
 	config *config
-
 }
 
 
 func (s *sBench)Run (){
 	tokens := s.getValidateKey()
-	counter := 0
 	for k, v := range tokens {
-		if k%s.config.concurrency == 0 {
-			counter += s.config.concurrency
-			fmt.Printf("%v connections established successfully ,Total current connections is %v  \n\r",s.config.concurrency,counter)
+		if k%s.config.concurrency == 0  && k !=0{
 			time.Sleep(1 * time.Second)
+			if s.success.Load() !=0 {
+				fmt.Printf( "Current number of successfully established connections %v ,fail %v \n\r",s.success.Load(),s.fail.Load())
+			}
 		}
 		go s.CreateClient(s.config.host, v,s.config.tagNum ,k )
 	}
+	time.Sleep(1 * time.Second)
+	fmt.Printf( "Current number of successfully established connections %v ,fail %v \n\r",s.success.Load(),s.fail.Load())
+	s.monitor()
 }
 
+
+func(s *sBench) monitor  (){
+	go func() {
+		t := time.NewTicker(time.Duration(5)*time.Second)
+		for {
+			<-t.C
+			fmt.Printf( "Current Open connections %v ,Current Closed connections %v \n\r",s.success.Load(),s.fail.Load())
+		}
+	}()
+
+
+}
 
 
 
@@ -64,13 +81,17 @@ func (s *sBench)CreateClient(Host, token string, tagN ,id int ) error {
 	url := fmt.Sprintf(Host+"?token=%s&tag=%s", token, s.createTags(tagN))
 	conn, _, err := dialer.Dial(url, nil)
 	if err != nil {
+		s.fail.Inc()
 		fmt.Printf("error occurs during runtime id : %v, url : %s ,err :%s\r\n",id ,url,err.Error())
 		return nil
 	}
+	s.success.Inc()
 	defer conn.Close()
 	for {
 		messageType, messageData, err := conn.ReadMessage()
 		if nil != err {
+			s.fail.Inc()
+			s.success.Dec()
 			return err
 		}
 		switch messageType {
