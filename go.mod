@@ -1,4 +1,4 @@
-module simBench
+module github/mongofs/simBench
 
 go 1.16
 
